@@ -1,61 +1,270 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel Broadcasting with Reverb (Realtime Post Updates)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+این پروژه یک مثال ساده از **Laravel 12 Broadcasting** با استفاده از **Reverb** است. هدف: نمایش realtime پست‌ها در مرورگر بدون نیاز به رفرش صفحه.
 
-## About Laravel
+## پیش‌نیازها
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP >= 8.1
+- Laravel 12
+- Node.js & npm
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## نصب پروژه
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+```bash
+composer create-project laravel/laravel laravel-broadcast-demo
+cd laravel-broadcast-demo
+npm install
+```
 
-## Learning Laravel
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+## فعال‌سازی Reverb
+```bash
+php artisan install:broadcasting --reverb
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
 
-## Laravel Sponsors
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## .env:
+```bash
+BROADCAST_CONNECTION=reverb
+REVERB_APP_ID=laravel
+REVERB_APP_KEY=base64:someKey
+REVERB_APP_SECRET=base64:someSecret
+REVERB_HOST=127.0.0.1
+REVERB_PORT=8080
+```
 
-### Premium Partners
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
 
-## Contributing
+## اجرای WebSocket Server
+```bash
+php artisan reverb:start
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
 
-## Code of Conduct
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## مدل و Migration پست
+```bash
+php artisan make:model Post -m
+```
 
-## Security Vulnerabilities
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
-## License
+## database/migrations/xxxx_create_posts_table.php:
+```php
+Schema::create('posts', function (Blueprint $table) {
+    $table->id();
+    $table->string('title');
+    $table->text('body');
+    $table->timestamps();
+});
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+
+## app/Models/Post.php:
+```php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Post extends Model
+{
+    protected $fillable = ['title', 'body'];
+}
+```
+
+
+
+## Event Broadcast
+```bash
+php artisan make:event PostCreated
+```
+
+
+
+## app/Events/PostCreated.php:
+```php
+namespace App\Events;
+
+use App\Models\Post;
+use Illuminate\Broadcasting\Channel;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+class PostCreated implements ShouldBroadcast
+{
+    use Dispatchable, SerializesModels;
+
+    public Post $post;
+
+    public function __construct(Post $post)
+    {
+        $this->post = $post;
+    }
+
+    public function broadcastOn(): Channel
+    {
+        return new Channel('posts');
+    }
+
+    public function broadcastAs(): string
+    {
+        return 'post.created';
+    }
+
+    public function broadcastWith(): array
+    {
+        return [
+            'id' => $this->post->id,
+            'title' => $this->post->title,
+            'body' => $this->post->body,
+        ];
+    }
+}
+```
+
+
+
+## Controller و Routes
+```bash
+php artisan make:controller PostController
+```
+
+
+
+## app/Http/Controllers/PostController.php:
+```php
+namespace App\Http\Controllers;
+
+use App\Models\Post;
+use App\Events\PostCreated;
+use Illuminate\Http\Request;
+
+class PostController extends Controller
+{
+    public function index()
+    {
+        $posts = Post::latest()->get();
+        return view('posts.index', compact('posts'));
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'body' => 'required|string',
+        ]);
+
+        $post = Post::create($validated);
+        PostCreated::dispatch($post);
+
+        return redirect()->back()->with('success', 'پست ساخته شد!');
+    }
+}
+```
+
+
+
+## Blade View
+## resources/views/posts/index.blade.php:
+```php
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <title>پست‌ها</title>
+    @vite('resources/js/app.js')
+</head>
+<body>
+    <h1>لیست پست‌ها</h1>
+
+    <form action="{{ route('posts.store') }}" method="POST">
+        @csrf
+        <input type="text" name="title" placeholder="عنوان">
+        <textarea name="body" placeholder="متن پست"></textarea>
+        <button type="submit">ایجاد پست</button>
+    </form>
+
+    <ul id="posts">
+        @foreach($posts as $post)
+            <li>{{ $post->title }} - {{ $post->body }}</li>
+        @endforeach
+    </ul>
+</body>
+</html>
+```
+
+
+
+## JS اصلی
+## resources/js/app.js:
+```php
+import axios from 'axios';
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
+import Alpine from 'alpinejs';
+
+window.Pusher = Pusher;
+
+window.Echo = new Echo({
+    broadcaster: 'reverb',
+    key: import.meta.env.VITE_REVERB_APP_KEY,
+    wsHost: import.meta.env.VITE_REVERB_HOST ?? window.location.hostname,
+    wsPort: import.meta.env.VITE_REVERB_PORT ?? 8080,
+    forceTLS: false,
+    enabledTransports: ['ws'],
+});
+
+console.log("Echo instance:", window.Echo);
+
+window.axios = axios;
+window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
+
+window.Alpine = Alpine;
+Alpine.start();
+
+setTimeout(() => {
+    window.Echo.channel('posts')
+        .listen('.post.created', (e) => {
+            console.log("✅ New post broadcasted:", e);
+
+            const list = document.getElementById('posts');
+            if (list) {
+                const li = document.createElement('li');
+                li.textContent = e.title + " - " + e.body;
+                list.prepend(li);
+            }
+        });
+}, 2000);
+```
+
+
+
+## کامپایل JS
+```bash
+npm install
+npm run dev
+```
+
+
+## 🔟 تست نهایی
+- اجرای سرور لاراول
+```bash
+php artisan serve
+```
+
+- اجرای Reverb WebSocket Server
+```bash
+php artisan reverb:start
+```
+
+
+## باز کردن مرورگر
+به آدرس: /posts
+
+## ایجاد پست جدید
+پس از ساخت پست، باید بدون رفرش صفحه در لیست نمایش داده شود
+در کنسول مرورگر پیام broadcast چاپ شود
